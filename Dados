@@ -1,0 +1,174 @@
+---
+title: "Disenho da base de datos "
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r pacotes,echo = FALSE, results = "hide",warning=FALSE, cache=FALSE, message=FALSE}
+library(dplyr)
+library(survival)
+library(survminer)
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(cowplot)
+library(flexsurv)
+library(xtable)
+library(data.table)
+library(car)
+library(forcats)
+library(janitor)
+library(flextable)
+library(lme4)
+library(nlme)
+library(lattice)
+library(VGAM)
+library(doBy)
+library(dplyr)
+library(plyr)
+library(jtools)
+library(ggstance)
+library(broom.mixed)
+library(MASS)
+library(statmod)
+library(lmerTest)
+```
+
+
+```{r leitura}
+#Dados<-read.csv2("DadosEstatistica2012a2018.csv",dec=",",sep="\t",header = TRUE)
+Dados<-read.csv2("DadosEstatistica2012a2018_novo.csv",header = TRUE,encoding = "UTF-8")
+#Criar variavel situacao2
+Dados$SITUACAO2<-recode(Dados$SITUACAO,"c('Intercambio','Trancado')='Ativo';
+c('Transferido')='Evadido'")
+
+table(Dados$ANOING,Dados$SITUACAO2)
+table(Dados$ANOING,Dados$SITUACAO)
+
+table(Dados$baseline)
+
+
+```
+
+```{r Fomato_longo}
+#Dados ordenados por id e AnoPeriodo2
+#Dados<-Dados[order(Dados$Id,Dados$AnoPeriodo2),]
+#Substituir valores negativos por 200
+Dados$fis[Dados$fis<=0] <-200
+Dados$qui[Dados$qui<=0] <-200
+#sum(Dados$fis<=200) #Temos 17 dados <0 e 200
+#sum(Dados$qui<=200) #Temos 12 dados <0 e 200
+#Substituir zeros no CR por NAs 
+#sum(Dados$CR_POR_PERIODO<=0)  476
+Dados$CR_POR_PERIODO[Dados$CR_POR_PERIODO <=0] <-NA
+#Criar os riscos 
+Dados$Cen1Formado<-recode(Dados$SITUACAO2,
+                      "c('Formado')=1;
+                      c('Ativo','Evadido')=0")
+Dados$Cen2Evadido<-recode(Dados$SITUACAO2,
+                      "c('Evadido')=1;
+                      c('Ativo','Formado')=0")
+
+#table(Dados$Cen1Formado,Dados$baseline)
+#table(Dados$Cen2Evadido,Dados$baseline)
+#Escolha de variaveis
+#Dados2<-select(Dados,         "id","ANO","Sexo","Idade","local_residencia","Cor","EM","Tec","Renda","Pessoas","OcMae","EscMae","Cursinho","PAAIS","isento", "por","mat","geo","his","fis","bio","qui",                      "AnoPeriodo2","SITUACAO2","Risco1Formado",                         "Risco2Evadido","CR_POR_PERIODO" )
+Dados2<-subset(Dados,select = c(id, ANOING, Sexo,Idade,local_residencia,Cor,EM,Tec,Renda,Pessoas,OcMae,EscMae,Cursinho,PAAIS,isento, por,mat,geo,his,fis,bio,qui,      SITUACAO2,Cen1Formado,                         Cen2Evadido,CR_POR_PERIODO,baseline))
+
+
+#Dar o formato correto as variaveis categoricas
+v_factor <-c("Sexo","ANOING","Idade","local_residencia","Cor","EM",
+               "Tec","Renda","OcMae","EscMae","Cursinho",
+                     "isento","SITUACAO2")
+
+#Banco de dados com formato longo
+Dados2[,v_factor] <-lapply(Dados2[,v_factor],as.factor)
+#knitr::kable(summary(Dados2))
+```
+
+
+
+```{r Arrumarcategorias}
+#Unir categorias onde se tem pouca informacao
+Dados2$Idade<-recode(Dados2$Idade,"c('17 anos','18 anos','19 anos','20 anos')='<21';
+c('21-23 anos','24-29 anos','>29 anos')='>20'")
+
+#table(Dados2$Idade)
+#local_residencia
+Dados2$local_residencia<-recode(Dados2$local_residencia,
+                        "c('Outros Estados')='Outro';
+                        c('Outra regiao de SP')='Outro'")
+
+
+#Cor
+Dados2$Cor<-recode(Dados2$Cor, "c('Amarela','Branca')='A-B';
+                       c('Indigena','Parda','Preta')='I-P-P';
+                       'Nao declarada'=NA")
+
+#Tipo de escola ensino médio
+Dados2$EM <-recode(Dados2$EM, "c(1)='Publica';
+                       c(2,3,4,5,6)='Outros';
+                       0=NA")
+
+#Tipo de escola ensino médio
+Dados2$Tec <-recode(Dados2$Tec, "c(1)='Comum';
+                       c(2,3,4,5,6)='Outros';
+                       c(0)=NA")
+Dados2$Renda<-recode(Dados2$Renda,
+              "c('< 01 SM','01-03 SM')='<3SM';
+               c('03-05 SM')='3-5SM';
+               c('05-10 SM')='5-10SM';
+               c('10-15 SM','15 - 20 SM','> 20 SM')='>10SM';
+                      c('Em branco')=NA")
+
+Dados2$Pessoas<-recode(Dados2$Pessoas,
+                           "c(0,1,2,3)='< 4'; 
+                       c(4)=4;c(5,6)='> 4'")
+
+Dados2$OcMae<-recode(Dados2$OcMae,
+                    "c(0)=NA; c(1,2,3)='A-G-S';
+                     c(4,5,6)='M-E';
+                     c(7)='M-Nao-E';
+                     c(8)='Lar';c(9)='Desem';c(10)='Outra'")
+#table(Dados2$OcMae)
+
+#Cambiar el orden de los niveles del factor 
+#$OcMae<-factor(Dados2$OcMae,levels=c("A-G-S",
+ #                         "M-E","M-Nao-E","Lar","Desem","Outra"))                  
+
+Dados2$EscMae<-recode(Dados2$EscMae,
+                              "c(0)=NA; 
+                       c(1,2)='EFI';c(3,4)='EMI';
+                          c(5,6)='ESI';c(7,8,9)='PC'")
+
+#Cursinho
+Dados2$Cursinho<-recode(Dados2$Cursinho,
+                          "c('Em branco')=NA")
+#PAAIS
+Dados2$PAAIS<-recode(Dados2$PAAIS,"c(0)='Nao';
+                         c(30,40,60,80,90,120 )='Sim'")
+
+```
+
+
+```{r Formato_curto}
+#Criar variavel tempo que indica o numero de semestre
+#Dados2$tempo=1
+#Dados2$tempo=ave(Dados2$tempo,Dados2$id,FUN="cumsum")
+#Truncar ate o semestre 12 
+Dados3<-subset(Dados2,baseline<13)
+Dados3<-as.data.frame(Dados3)
+#Criar o banco de dado formato curto um registro por individuo
+Dadosgroup<- group_by(Dados3,id)
+Dados_curto<-filter(Dadosgroup,baseline==max(baseline))
+```
+
+```{r csv dados }
+write.csv(Dados3,"Dados_longo_novo.csv")
+write.csv(Dados_curto,"Dados_curto_novo.csv")
+
+```
+
